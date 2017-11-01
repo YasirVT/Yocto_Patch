@@ -1,0 +1,373 @@
+From 58fdcf62b6f58f245ab0b5986cfca6acb651d5c6 Mon Sep 17 00:00:00 2001
+From: root <root@vta088l.votarytech.com>
+Date: Thu, 7 Sep 2017 15:20:57 +0530
+Subject: [PATCH] All yocto changes by Yasir to make kernel 4.12 from local git
+ server with Votary specific changes
+
+---
+ conf/machine/include/rpi-base.inc                  |  2 +-
+ conf/machine/raspberrypi3.conf                     | 39 +++++++++--
+ .../0001-BLUETOOTH_ENABLE.patch                    | 79 ++++++++++++++++++++++
+ .../0001-DUMMY-DTS-PATCH-FOR-TESTING.patch         | 27 ++++++++
+ ...001-arm64-bcm2837-Alsa-HDMI-Audio-Enabled.patch | 78 +++++++++++++++++++++
+ ...ed-sdhost-support-to-drive-sdcard-into-BC.patch | 28 ++++++++
+ recipes-kernel/linux/linux-raspberrypi.inc         |  5 +-
+ recipes-kernel/linux/linux-raspberrypi_4.1.bb      | 25 ++++---
+ 8 files changed, 266 insertions(+), 17 deletions(-)
+ create mode 100644 recipes-kernel/linux/linux-raspberrypi-4.1/0001-BLUETOOTH_ENABLE.patch
+ create mode 100644 recipes-kernel/linux/linux-raspberrypi-4.1/0001-DUMMY-DTS-PATCH-FOR-TESTING.patch
+ create mode 100644 recipes-kernel/linux/linux-raspberrypi-4.1/0001-arm64-bcm2837-Alsa-HDMI-Audio-Enabled.patch
+ create mode 100644 recipes-kernel/linux/linux-raspberrypi-4.1/0001-arm64-enabled-sdhost-support-to-drive-sdcard-into-BC.patch
+
+diff --git a/conf/machine/include/rpi-base.inc b/conf/machine/include/rpi-base.inc
+index 56ca83e..36a7d77 100644
+--- a/conf/machine/include/rpi-base.inc
++++ b/conf/machine/include/rpi-base.inc
+@@ -5,7 +5,7 @@ include conf/machine/include/rpi-default-providers.inc
+ SOC_FAMILY = "rpi"
+ include conf/machine/include/soc-family.inc
+ 
+-IMAGE_FSTYPES ?= "tar.bz2 ext3 rpi-sdimg"
++IMAGE_FSTYPES ?= "tar.bz2 ext4 rpi-sdimg"
+ 
+ XSERVER = " \
+     xserver-xorg \
+diff --git a/conf/machine/raspberrypi3.conf b/conf/machine/raspberrypi3.conf
+index cb6056e..e3d11f2 100644
+--- a/conf/machine/raspberrypi3.conf
++++ b/conf/machine/raspberrypi3.conf
+@@ -1,11 +1,40 @@
+ #@TYPE: Machine
+ #@NAME: RaspberryPi 3 Development Board
+-#@DESCRIPTION: Machine configuration for the RaspberryPi 3
++#@DESCRIPTION: Machine configuration for the RaspberryPi 3 in 64 bits mode
+ 
+-MACHINEOVERRIDES = "raspberrypi2:${MACHINE}"
++MACHINEOVERRIDES = "raspberrypi3:${MACHINE}"
+ 
+-MACHINE_EXTRA_RRECOMMENDS += "linux-firmware-brcm43430"
++MACHINE_EXTRA_RRECOMMENDS += "linux-firmware-bcm43430"
+ 
+-include conf/machine/raspberrypi2.conf
++require conf/machine/include/arm/arch-armv8.inc
++include conf/machine/include/rpi-base.inc
+ 
+-SERIAL_CONSOLE = "115200 ttyS0"
++KERNEL_DEVICETREE = " \
++    broadcom/bcm2710-rpi-3-b.dtb \
++    broadcom/bcm2837-rpi-3-b.dtb \
++    \
++    overlays/hifiberry-amp.dtbo \
++    overlays/hifiberry-dac.dtbo \
++    overlays/hifiberry-dacplus.dtbo \
++    overlays/hifiberry-digi.dtbo \
++    overlays/i2c-rtc.dtbo \
++    overlays/iqaudio-dac.dtbo \
++    overlays/iqaudio-dacplus.dtbo \
++    overlays/lirc-rpi.dtbo \
++    overlays/pitft22.dtbo \
++    overlays/pitft28-resistive.dtbo \
++    overlays/pitft35-resistive.dtbo \
++    overlays/pps-gpio.dtbo \
++    overlays/rpi-ft5406.dtbo \
++    overlays/w1-gpio.dtbo \
++    overlays/w1-gpio-pullup.dtbo \
++    overlays/pi3-disable-bt.dtbo \
++    overlays/pi3-miniuart-bt.dtbo \
++    overlays/vc4-kms-v3d.dtbo \
++    "
++
++SERIAL_CONSOLE ?= "115200 ttyS0"
++VC4_CMA_SIZE ?= "cma-256"
++
++UBOOT_MACHINE = "rpi_3_config"
++MACHINE_FEATURES_append = " vc4graphics"
+diff --git a/recipes-kernel/linux/linux-raspberrypi-4.1/0001-BLUETOOTH_ENABLE.patch b/recipes-kernel/linux/linux-raspberrypi-4.1/0001-BLUETOOTH_ENABLE.patch
+new file mode 100644
+index 0000000..13e3c50
+--- /dev/null
++++ b/recipes-kernel/linux/linux-raspberrypi-4.1/0001-BLUETOOTH_ENABLE.patch
+@@ -0,0 +1,79 @@
++From fe15869114422c6ee338dcc036578e72fa020902 Mon Sep 17 00:00:00 2001
++From: Mallikarjun <mallikarjun.gattam@votarytech.com>
++Date: Thu, 3 Aug 2017 12:00:25 +0530
++Subject: [PATCH] BLUETOOTH_ENABLE
++
++---
++ arch/arm/boot/dts/bcm283x.dtsi                   |  6 +++++
++ arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts | 32 ++++++++++++++++++++++++
++ 2 files changed, 38 insertions(+)
++
++diff --git a/arch/arm/boot/dts/bcm283x.dtsi b/arch/arm/boot/dts/bcm283x.dtsi
++index 8405bea..6027703 100644
++--- a/arch/arm/boot/dts/bcm283x.dtsi
+++++ b/arch/arm/boot/dts/bcm283x.dtsi
++@@ -23,6 +23,12 @@
++ 	chosen {
++ 		bootargs = "earlyprintk console=ttyAMA0";
++ 	};
+++	aliases {
+++		uart0 = &uart0;
+++                sdhost = &sdhost;
+++		fb = &fb;
+++		gpio = &gpio;
+++		};
++ 
++ 	soc {
++ 		compatible = "simple-bus";
++diff --git a/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts b/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
++index 096f6b6..ec519c3 100644
++--- a/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
+++++ b/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
++@@ -17,8 +17,36 @@
++ 			gpios = <&gpio 47 0>;
++ 		};
++ 	};
+++
+++soc {
+++		fb: fb {
+++			compatible = "brcm,bcm2708-fb";
+++			firmware = <&firmware>;
+++			status = "disabled";
+++		};
+++};
+++};
+++&gpio {
+++	bt_pins: bt_pins {
+++		brcm,pins = <43>;
+++		brcm,function = <4>; /* alt0:GPCLK2 */
+++		brcm,pull = <0>;
+++	};
+++
+++uart0_pins: uart0_pins {
+++		brcm,pins = <32 33 >;
+++		brcm,function = <7>; /* alt3=UART0 */
+++		brcm,pull = <0 2>;
+++	};
+++};
+++&uart0 {
+++	pinctrl-names = "default";
+++	pinctrl-0 = <&uart0_pins &bt_pins>;
+++	status = "okay";
++ };
++ 
+++sdhost_pins: &sdhost_gpio48 {
+++};
++ &uart1 {
++ 	status = "okay";
++ };
++@@ -30,3 +58,7 @@
++ 	status = "okay";
++ 	bus-width = <4>;
++ };
+++
+++&fb {
+++	status = "okay";
+++};
++-- 
++2.7.4
++
+diff --git a/recipes-kernel/linux/linux-raspberrypi-4.1/0001-DUMMY-DTS-PATCH-FOR-TESTING.patch b/recipes-kernel/linux/linux-raspberrypi-4.1/0001-DUMMY-DTS-PATCH-FOR-TESTING.patch
+new file mode 100644
+index 0000000..9584843
+--- /dev/null
++++ b/recipes-kernel/linux/linux-raspberrypi-4.1/0001-DUMMY-DTS-PATCH-FOR-TESTING.patch
+@@ -0,0 +1,27 @@
++From 4e0502abcc13f8604d5faba41b9e2a4168f54d7a Mon Sep 17 00:00:00 2001
++From: Auto Configured <auto.configured>
++Date: Tue, 8 Aug 2017 17:43:30 +0530
++Subject: [PATCH 1/1] DUMMY DTS PATCH FOR TESTING
++
++---
++ arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts | 4 +++-
++ 1 file changed, 3 insertions(+), 1 deletion(-)
++
++diff --git a/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts b/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
++index c309633..955694f 100644
++--- a/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
+++++ b/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
++@@ -11,7 +11,9 @@
++ 	memory {
++ 		reg = <0 0x40000000>;
++ 	};
++-
+++        /* aliases 
+++           dummy patch 
+++           added for testing yocto */
++ 	leds {
++ 		act {
++ 			gpios = <&gpio 47 0>;
++-- 
++1.9.1
++
+diff --git a/recipes-kernel/linux/linux-raspberrypi-4.1/0001-arm64-bcm2837-Alsa-HDMI-Audio-Enabled.patch b/recipes-kernel/linux/linux-raspberrypi-4.1/0001-arm64-bcm2837-Alsa-HDMI-Audio-Enabled.patch
+new file mode 100644
+index 0000000..88132d1
+--- /dev/null
++++ b/recipes-kernel/linux/linux-raspberrypi-4.1/0001-arm64-bcm2837-Alsa-HDMI-Audio-Enabled.patch
+@@ -0,0 +1,78 @@
++From e7278750edd0790ec76455686d9b56129c823ff0 Mon Sep 17 00:00:00 2001
++From: Jignesh N Patel <jigneshbhai.narsinhbhai@gvotarytech.com>
++Date: Thu, 3 Aug 2017 12:48:31 +0530
++Subject: [PATCH] arm64: bcm2837 Alsa/HDMI Audio Enabled
++
++vchiq is VideoCore driver to make audio working through video player
++Signed-off-by: Jignesh N Patel <jigneshbhai.narsinhbhai@gvotarytech.com>
++---
++ arch/arm/boot/dts/bcm2835-rpi.dtsi               | 22 ++++++++++++++++++++++
++ arch/arm/boot/dts/bcm283x.dtsi                   |  1 +
++ arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts |  6 ++++++
++ 3 files changed, 29 insertions(+)
++
++diff --git a/arch/arm/boot/dts/bcm2835-rpi.dtsi b/arch/arm/boot/dts/bcm2835-rpi.dtsi
++index a7b5ce1..a87cc63 100644
++--- a/arch/arm/boot/dts/bcm2835-rpi.dtsi
+++++ b/arch/arm/boot/dts/bcm2835-rpi.dtsi
++@@ -27,6 +27,28 @@
++ 			firmware = <&firmware>;
++ 			#power-domain-cells = <1>;
++ 		};
+++
+++                fb: fb {
+++                        compatible = "brcm,bcm2708-fb";
+++                        firmware = <&firmware>;
+++                        status = "disabled";
+++                };
+++
+++                vchiq: vchiq {
+++                        compatible = "brcm,bcm2835-vchiq";
+++                        reg = <0x7e00b840 0xf>;
+++                        interrupts = <0 2>;
+++                        cache-line-size = <32>;
+++                        firmware = <&firmware>;
+++                };
+++
+++                /* Onboard audio */
+++                audio: audio {
+++                        compatible = "brcm,bcm2835-audio";
+++                        brcm,pwm-channels = <8>;
+++                        status = "disabled";
+++                };
+++
++ 	};
++ };
++ 
++diff --git a/arch/arm/boot/dts/bcm283x.dtsi b/arch/arm/boot/dts/bcm283x.dtsi
++index 8405bea..b0006f2 100644
++--- a/arch/arm/boot/dts/bcm283x.dtsi
+++++ b/arch/arm/boot/dts/bcm283x.dtsi
++@@ -556,6 +556,7 @@
++ 			compatible = "brcm,bcm2835-pixelvalve2";
++ 			reg = <0x7e807000 0x100>;
++ 			interrupts = <2 10>; /* pixelvalve */
+++			status = "disabled";
++ 		};
++ 
++ 		hdmi: hdmi@7e902000 {
++diff --git a/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts b/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
++index 19449d9..2bb8d18 100644
++--- a/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
+++++ b/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
++@@ -22,6 +22,12 @@
++ &uart1 {
++ 	status = "okay";
++ };
+++&fb {
+++	status = "okay";
+++};
+++&audio {
+++	status = "okay";
+++};
++ &sdhost {
++ 	pinctrl-names = "default";
++ 	pinctrl-0 = <&sdhost_gpio48>;
++-- 
++2.7.4
++
+diff --git a/recipes-kernel/linux/linux-raspberrypi-4.1/0001-arm64-enabled-sdhost-support-to-drive-sdcard-into-BC.patch b/recipes-kernel/linux/linux-raspberrypi-4.1/0001-arm64-enabled-sdhost-support-to-drive-sdcard-into-BC.patch
+new file mode 100644
+index 0000000..4252bbe
+--- /dev/null
++++ b/recipes-kernel/linux/linux-raspberrypi-4.1/0001-arm64-enabled-sdhost-support-to-drive-sdcard-into-BC.patch
+@@ -0,0 +1,28 @@
++From 34ca8d852831e9927b1ac597464a0d07bcb3ecf0 Mon Sep 17 00:00:00 2001
++From: Jignesh N Patel <jigneshbhai.narsinhbhai@gvotarytech.com>
++Date: Tue, 1 Aug 2017 10:05:25 +0530
++Subject: [PATCH] arm64: enabled sdhost support to drive sdcard into BCM2837
++ dts
++
++Signed-off-by: Jignesh N Patel <jigneshbhai.narsinhbhai@gvotarytech.com>
++---
++ arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts | 6 ++++++
++ 1 file changed, 6 insertions(+)
++
++diff --git a/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts b/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
++index c309633..19449d9 100644
++--- a/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
+++++ b/arch/arm64/boot/dts/broadcom/bcm2837-rpi-3-b.dts
++@@ -22,3 +22,9 @@
++ &uart1 {
++ 	status = "okay";
++ };
+++&sdhost {
+++	pinctrl-names = "default";
+++	pinctrl-0 = <&sdhost_gpio48>;
+++	status = "okay";
+++	bus-width = <4>;
+++};
++-- 
++2.7.4
++
+diff --git a/recipes-kernel/linux/linux-raspberrypi.inc b/recipes-kernel/linux/linux-raspberrypi.inc
+index 6184402..806d87e 100644
+--- a/recipes-kernel/linux/linux-raspberrypi.inc
++++ b/recipes-kernel/linux/linux-raspberrypi.inc
+@@ -36,9 +36,10 @@ python __anonymous () {
+     kerneldt = get_dts(d, d.getVar('LINUX_VERSION', True))
+     d.setVar("KERNEL_DEVICETREE", kerneldt)
+ }
+-
++KERNEL_DEFCONFIG ?= "bcmrpi3_defconfig"
++#S = home/langomah/rpi1/rpi-build/tmp/work-shared/raspberrypi3/kernel-source
+ do_kernel_configme_prepend() {
+-    install -m 0644 ${S}/arch/${ARCH}/configs/${KERNEL_DEFCONFIG} ${WORKDIR}/defconfig || die "No default configuration for ${MACHINE} / ${KERNEL_DEFCONFIG} available."
++    install -m 0644 ${S}/arch/arm64/configs/${KERNEL_DEFCONFIG} ${WORKDIR}/defconfig || die "No default configuration for ${MACHINE} / ${KERNEL_DEFCONFIG} available."
+ }
+ 
+ do_install_prepend() {
+diff --git a/recipes-kernel/linux/linux-raspberrypi_4.1.bb b/recipes-kernel/linux/linux-raspberrypi_4.1.bb
+index 87c77b8..56b0d4a 100644
+--- a/recipes-kernel/linux/linux-raspberrypi_4.1.bb
++++ b/recipes-kernel/linux/linux-raspberrypi_4.1.bb
+@@ -1,12 +1,19 @@
+-FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}-${PV}:"
+ 
+-LINUX_VERSION ?= "4.1.21"
++FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}-${PV}:" 
+ 
+-SRCREV = "ff45bc0e8917c77461b2901e2743e6339bb70413"
+-SRC_URI = "git://github.com/raspberrypi/linux.git;protocol=git;branch=rpi-4.1.y \
+-           file://0001-dts-add-overlay-for-pitft22.patch \
+-           file://0002-vmcs-Remove-unused-sm_cache_map_vector-definition.patch \
+-           file://0003-fix-gcc6.patch \
+-          "
++LINUX_VERSION ?= "4.12.3" 
+ 
+-require linux-raspberrypi.inc
++SRCREV =  "4bbd9ae70552bb644a2237cfe90fcba7b947d682" 
++
++SRC_URI = "git://gitolite_server@192.168.2.197:yocto.git;protocol=file;branch=master;bareclone=1 \
++	   file://0001-arm64-enabled-sdhost-support-to-drive-sdcard-into-BC.patch; \
++	   file://0001-arm64-bcm2837-Alsa-HDMI-Audio-Enabled.patch \
++	   file://0001-BLUETOOTH_ENABLE.patch \
++"
++
++require linux-raspberrypi.inc 
++
++# A LOADADDR is needed when building a uImage format kernel. This value is not 
++# set by default in rpi-4.8.y and later branches so we need to provide it 
++# manually. This value unused if KERNEL_IMAGETYPE is not uImage. 
++KERNEL_EXTRA_ARGS += "LOADADDR=0x00008000" 
+-- 
+1.9.1
+
